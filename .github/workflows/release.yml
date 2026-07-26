@@ -1,0 +1,66 @@
+name: Release
+
+# Create a GitHub Release when a version tag is pushed.
+# Example: git tag -a v0.1.0 -m "minrepro 0.1.0" && git push origin v0.1.0
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools and package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest -q --tb=short
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check distributions
+        run: python -m twine check dist/*
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: minrepro ${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## minrepro ${{ steps.version.outputs.version }}
+
+            Structure-aware JSON/YAML config shrinker.
+
+            ### Install from this tag
+
+            ```bash
+            pip install "git+https://github.com/${{ github.repository }}.git@${{ github.ref_name }}"
+            ```
+
+            Or download the sdist/wheel attached to this release.
+
+            Full notes: see [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
+          files: |
+            dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

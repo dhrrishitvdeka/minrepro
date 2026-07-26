@@ -1,0 +1,115 @@
+"""Tests for structure-aware shrinker keep/reject logic (shipped Shrinker)."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from minrepro.model import count_stats
+from minrepro.oracle import Oracle, OracleConfig
+from minrepro.parse import dumps, load, loads
+from minrepro.shrink import Shrinker
+
+
+def test_shrink_yaml_keeps_bad_option_removes_unrelated(
+    broken_yaml: Path, oracle_bad_cmd: str
+):
+    data, fmt, text = load(broken_yaml)
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    result = Shrinker(oracle, fmt, suffix=".yaml").shrink(data, text)
+
+    reduced = result.reduced
+    assert isinstance(reduced, dict)
+    # Still valid YAML when dumped
+    reparsed = loads(result.reduced_text, "yaml")
+    assert reparsed == reduced
+
+    # BAD_OPTION remains
+    env = reduced["services"]["backend"]["environment"]
+    assert env.get("BAD_OPTION") is True
+
+    # Unrelated service gone
+    assert "frontend" not in reduced["services"]
+
+    # Unrelated keys under backend/environment preferably gone
+    assert "DATABASE_URL" not in env
+    assert "CACHE_URL" not in env
+    assert "volumes" not in reduced["services"]["backend"]
+    assert "image" not in reduced["services"]["backend"]
+
+    # Smaller structurally
+    assert count_stats(reduced).nodes < count_stats(data).nodes
+    assert len(result.reduced_text.encode("utf-8")) < len(text.encode("utf-8"))
+    assert result.interesting_runs >= 1
+    assert result.oracle_runs >= result.interesting_runs
+    assert any(e.kept for e in result.events)
+    assert result.stopped_reason in {"fixed-point", "nothing-left-to-remove"}
+
+
+def test_shrink_json(broken_json: Path, oracle_bad_cmd: str):
+    data, fmt, text = load(broken_json)
+    assert fmt == "json"
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    result = Shrinker(oracle, fmt, suffix=".json").shrink(data, text)
+    reduced = loads(result.reduced_text, "json")
+    assert reduced["services"]["backend"]["environment"]["BAD_OPTION"] is True
+    assert "frontend" not in reduced["services"]
+
+
+def test_reject_deletion_that_removes_failure(tmp_path: Path, oracle_bad_cmd: str):
+    """When only BAD_OPTION remains, further deletions must be rejected."""
+    data = {"services": {"backend": {"environment": {"BAD_OPTION": True}}}}
+    text = dumps(data, "yaml")
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    result = Shrinker(oracle, "yaml", suffix=".yaml").shrink(data, text)
+    # Cannot remove BAD_OPTION or the path that holds it without losing the failure
+    assert result.reduced["services"]["backend"]["environment"]["BAD_OPTION"] is True
+    # Either no kept deletions, or kept only truly optional structure (none here)
+    assert result.reduced_text  # non-empty
+
+
+def test_max_steps_stops_early(broken_yaml: Path, oracle_bad_cmd: str):
+    data, fmt, text = load(broken_yaml)
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    result = Shrinker(oracle, fmt, suffix=".yaml", max_steps=1).shrink(data, text)
+    assert result.stopped_reason == "max-steps"
+    assert len(result.events) == 1
+
+
+def test_final_exit_reflects_last_interesting_not_last_reject(
+    broken_yaml: Path, oracle_bad_cmd: str
+):
+    data, fmt, text = load(broken_yaml)
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    result = Shrinker(oracle, fmt, suffix=".yaml").shrink(data, text)
+    # After fixpoint, many rejects are exit 0; final_* must stay on interesting failure.
+    assert result.interesting_runs >= 1
+    assert result.final_exit_code == 1
+    assert "BAD_OPTION" in (result.final_output or "")
+
+
+def test_root_kind_preserved_sequence(tmp_path: Path):
+    """List root stays a list after item deletion."""
+    # Fail if list still contains the string "bad"
+    oracle_script = tmp_path / "list_oracle.py"
+    oracle_script.write_text(
+        "import sys, json, pathlib\n"
+        "p = pathlib.Path(sys.argv[1])\n"
+        "text = p.read_text(encoding='utf-8')\n"
+        "try:\n"
+        "  import yaml\n"
+        "  data = yaml.safe_load(text)\n"
+        "except Exception:\n"
+        "  data = json.loads(text)\n"
+        "if isinstance(data, list) and 'bad' in data:\n"
+        "  print('found bad', file=sys.stderr); sys.exit(1)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    cmd = f'"{sys.executable}" "{oracle_script}" {{}}'
+    data = ["good", "bad", "also-good"]
+    text = dumps(data, "yaml")
+    oracle = Oracle(OracleConfig(command=cmd, error_contains="found bad"))
+    result = Shrinker(oracle, "yaml", suffix=".yaml").shrink(data, text)
+    assert isinstance(result.reduced, list)
+    assert result.reduced == ["bad"]

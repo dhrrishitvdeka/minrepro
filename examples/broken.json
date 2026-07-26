@@ -1,0 +1,17 @@
+{
+  "services": {
+    "frontend": {
+      "image": "frontend:latest",
+      "ports": ["3000:3000"]
+    },
+    "backend": {
+      "image": "backend:latest",
+      "environment": {
+        "DATABASE_URL": "postgres://db",
+        "CACHE_URL": "redis://cache",
+        "BAD_OPTION": true
+      },
+      "volumes": ["./data:/data"]
+    }
+  }
+}
