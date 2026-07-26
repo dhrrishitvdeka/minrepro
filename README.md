@@ -56,18 +56,6 @@ Prefer `python` / `python3` / `py` from your install; the `{}` path is substitut
 
 ## Install
 
-Clone and install (recommended while the project is young):
-
-```bash
-git clone https://github.com/dhrrishitvdeka/minrepro.git
-cd minrepro
-pip install -e .
-# with tests:
-pip install -e ".[dev]"
-```
-
-From a release tag:
-
 ```bash
 pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.1.0"
 ```
