@@ -11,6 +11,8 @@ from minrepro.oracle import (
     Oracle,
     OracleConfig,
     OracleError,
+    is_same_failure,
+    normalize_oracle_output,
     quote_path_for_shell,
     validate_baseline,
 )
@@ -152,3 +154,94 @@ def test_decode_process_bytes_replaces_invalid():
     assert "BAD_OPTION" in decode_process_bytes(b"\xffBAD_OPTION")
     assert decode_process_bytes(None) == ""
     assert decode_process_bytes("already") == "already"
+
+
+def test_oracle_does_not_read_parent_stdin(tmp_path: Path):
+    script = tmp_path / "echo_stdin.py"
+    script.write_text(
+        "import sys\n"
+        "data = sys.stdin.read()\n"
+        "sys.stderr.write('SAW=' + repr(data) + '\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("a: 1\n", encoding="utf-8")
+    token = "PARENT_STDIN_TOKEN_9f3a"
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+
+    import subprocess
+
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / 'src')!r})\n"
+        "from pathlib import Path\n"
+        "from minrepro.oracle import Oracle, OracleConfig\n"
+        f"oracle = Oracle(OracleConfig(command={cmd!r}, error_contains='SAW'))\n"
+        f"r = oracle.run(Path({str(cfg)!r}))\n"
+        "sys.stdout.write(r.output)\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [sys.executable, str(driver)],
+        input=token + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert token not in proc.stdout
+    assert "SAW=''" in proc.stdout or "SAW=" in proc.stdout
+    assert token not in proc.stdout
+
+
+def test_timeout_is_not_interesting(tmp_path: Path):
+    script = tmp_path / "sleep.py"
+    script.write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("a: 1\n", encoding="utf-8")
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+    oracle = Oracle(OracleConfig(command=cmd, timeout=0.3))
+    result = oracle.run(cfg)
+    assert result.timed_out is True
+    assert result.interesting is False
+    assert "timeout" in result.reason
+
+
+def test_invalid_timeout_rejected():
+    with pytest.raises(OracleError, match="timeout"):
+        Oracle(OracleConfig(command="echo {}", timeout=-1))
+    with pytest.raises(OracleError, match="timeout"):
+        Oracle(OracleConfig(command="echo {}", timeout=float("nan")))
+
+
+def test_same_failure_keeps_named_token_rejects_unrelated():
+    assert is_same_failure("error unknown option BAD_OPTION", "error unknown option BAD_OPTION")
+    assert is_same_failure("error: real-bug", "real-bug extra")
+    assert not is_same_failure("error: real-bug", "missing-required")
+    assert not is_same_failure("unknown option BAD_OPTION", "missing required field")
+
+
+def test_normalize_strips_path(tmp_path: Path):
+    path = tmp_path / "cfg.yaml"
+    raw = f"error validating {path}: unknown field BAD_OPTION\n"
+    norm = normalize_oracle_output(raw, path)
+    assert path.name not in norm or "<PATH>" in norm
+    assert "BAD_OPTION" in norm
+
+
+def test_validate_baseline_pins_failure(oracle_bad_cmd: str, broken_yaml: Path):
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    r = validate_baseline(oracle, broken_yaml.resolve())
+    assert r.interesting is True
+    assert oracle._pinned is True
+
+
+def test_quote_percent_on_windows():
+    import os
+
+    if os.name != "nt":
+        pytest.skip("Windows % escaping")
+    q = quote_path_for_shell(Path(r"C:\Users\x\%PATH%.yaml"))
+    assert "%%PATH%%" in q
+    assert q.startswith('"') and q.endswith('"')

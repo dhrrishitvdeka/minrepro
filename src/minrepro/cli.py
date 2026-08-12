@@ -11,10 +11,10 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 from minrepro import __version__
-from minrepro.oracle import Oracle, OracleConfig, OracleError, validate_baseline
+from minrepro.api import reduce_data
+from minrepro.oracle import BaselineNotInteresting, OracleError
 from minrepro.parse import ParseError, dump, load
-from minrepro.report import render_markdown
-from minrepro.shrink import Shrinker
+from minrepro.report import render_markdown, utf8_size
 
 console = Console(stderr=True)
 out = Console(file=sys.stdout)
@@ -25,11 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="minrepro",
         description=(
             "Shrink a failing JSON/YAML configuration to the smallest structure "
-            "that still reproduces the failure under your test command."
+            "that still reproduces the same failure under your test command."
         ),
         epilog=(
             "Example:\n"
-            '  minrepro broken.yaml --test "kubectl apply --dry-run=server -f {}"\n'
+            '  minrepro broken.yaml --test "kubectl apply --dry-run=server -f {}" '
+            '--error-contains "unknown field"\n'
             '  minrepro app.json --test "my-app --config {}" '
             '--error-contains "unknown option"\n'
             '  minrepro examples/broken.yaml '
@@ -44,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-t",
         required=True,
         metavar="CMD",
-        help='Shell command to run; use {} as the config path placeholder',
+        help="Shell command to run; use {} as the config path placeholder",
     )
     p.add_argument(
         "--output",
@@ -137,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[red]error:[/red] input not found: {input_path}")
         return 2
 
+    if args.max_steps is not None and args.max_steps < 1:
+        console.print("[red]error:[/red] --max-steps must be >= 1")
+        return 2
+
     try:
         data, fmt, original_text = load(input_path, args.format)
     except (ParseError, OSError) as exc:
@@ -144,18 +149,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     timeout = None if args.timeout == 0 else args.timeout
-    oracle_cfg = OracleConfig(
-        command=args.test,
-        exit_code=args.exit_code,
-        error_contains=args.error_contains,
-        error_regex=args.error_regex,
-        timeout=timeout,
-    )
-    try:
-        oracle = Oracle(oracle_cfg)
-    except OracleError as exc:
-        console.print(f"[red]error:[/red] {exc}")
-        return 2
 
     def progress(msg: str) -> None:
         if not args.quiet:
@@ -174,32 +167,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         console.print("[cyan]validating baseline...[/cyan]")
 
-    # Baseline against the real input path so tools that care about the path work
+    suffix = input_path.suffix if input_path.suffix else f".{fmt}"
     try:
-        baseline = validate_baseline(oracle, input_path.resolve())
-    except OracleError as exc:
+        result = reduce_data(
+            data,
+            args.test,
+            fmt=fmt,
+            original_text=original_text,
+            exit_code=args.exit_code,
+            error_contains=args.error_contains,
+            error_regex=args.error_regex,
+            timeout=timeout,
+            max_steps=args.max_steps,
+            progress=progress,
+            suffix=suffix,
+            baseline_path=input_path.resolve(),
+        )
+    except BaselineNotInteresting as exc:
         console.print(f"[red]error:[/red] {exc}")
         return 1
+    except (OracleError, ValueError) as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 2
 
     if not args.quiet:
         console.print(
             f"[green]baseline interesting[/green] "
-            f"(exit {baseline.exit_code}; {baseline.reason})"
+            f"(exit {result.final_exit_code}; shrinking finished)"
         )
-
-    suffix = input_path.suffix if input_path.suffix else f".{fmt}"
-    shrinker = Shrinker(
-        oracle,
-        fmt,
-        max_steps=args.max_steps,
-        progress=progress,
-        suffix=suffix,
-    )
-
-    if not args.quiet:
-        console.print("[cyan]shrinking...[/cyan]")
-
-    result = shrinker.shrink(data, original_text)
 
     # Default output paths
     if args.no_output:
@@ -254,8 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[green]wrote report:[/green] {report_path}")
 
     if not args.quiet:
-        o_bytes = len(result.original_text.encode("utf-8"))
-        r_bytes = len(result.reduced_text.encode("utf-8"))
+        o_bytes = utf8_size(result.original_text)
+        r_bytes = utf8_size(result.reduced_text)
         kept = sum(1 for e in result.events if e.kept)
         console.print(
             f"[bold green]done[/bold green] in {result.duration_seconds:.2f}s - "
@@ -263,7 +258,6 @@ def main(argv: list[str] | None = None) -> int:
             f"{result.oracle_runs} oracle runs ({result.stopped_reason})"
         )
         if not args.stdout and output_path is None and write_report:
-            # Reduced config only in report / memory; show a preview on stderr.
             console.print(
                 Syntax(result.reduced_text, fmt, theme="monokai", line_numbers=False)
             )

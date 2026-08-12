@@ -23,6 +23,7 @@ Requires Python 3.10 or newer.
 
 ```
 src/minrepro/     # installable package (CLI + library)
+  api.py          # public reduce_file / reduce_data
   cli.py          # argparse entry point
   parse.py        # JSON/YAML load and dump
   model.py        # tree paths, delete key/item, candidates
@@ -45,13 +46,13 @@ Use `py` or `python3` if that is how your platform invokes Python.
 
 ## Coding guidelines
 
-- Prefer pure functions for tree ops and predicates so tests can call them directly.
-- Keep the CLI thin: parse args, validate baseline, shrink, write artifacts.
+- Prefer pure functions for tree ops, report math, and predicates so tests can call them directly.
+- Keep the CLI thin: parse args, call `reduce_data` / `reduce_file`, write artifacts.
 - Do not mock the unit under test. External oracle scripts are fine.
-- Support Windows and Linux natively: close temp files before the oracle re-opens them; quote `{}` with host rules (`cmd` vs `sh`); write UTF-8 with LF; use `scripts/ci_smoke.py` for shell-free smoke tests.
-
-- Stay in v0.1 scope unless fixing a bug: JSON-compatible JSON/YAML only; key and list-item deletion; exit-code and message predicates; Markdown report.
+- Support Windows and Linux natively: close temp files before the oracle re-opens them; quote `{}` with host rules (`cmd` vs `sh`); close oracle stdin; write UTF-8 with LF; use `scripts/ci_smoke.py` for shell-free smoke tests.
+- Stay in v0.2 scope unless fixing a bug: JSON-compatible JSON/YAML only; key and list-item deletion; same-failure predicates; Markdown report.
 - Decode oracle process output as UTF-8 with `errors="replace"` so invalid bytes never wipe the message stream.
+- Public exports live in `minrepro` (`reduce_file`, `reduce_data`, `load`, `dumps`, `Oracle`, `Shrinker`, …).
 
 ## Pull requests
 

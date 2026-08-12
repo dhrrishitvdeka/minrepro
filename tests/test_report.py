@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from minrepro.model import ReductionEvent, ReductionResult
-from minrepro.report import render_markdown
+from minrepro.model import ReductionEvent, ReductionResult, count_stats
+from minrepro.report import line_count, removed_percent, render_markdown, utf8_size
 
 
 def test_render_markdown_contains_summary_and_reduced():
@@ -65,3 +65,32 @@ def test_render_markdown_contains_summary_and_reduced():
     assert "b:" in md
     assert "error: boom" in md
     assert "fixed-point" in md
+
+    orig_bytes = utf8_size(result.original_text)
+    red_bytes = utf8_size(result.reduced_text)
+    orig_lines = line_count(result.original_text)
+    red_lines = line_count(result.reduced_text)
+    orig_nodes = count_stats(result.original).nodes
+    red_nodes = count_stats(result.reduced).nodes
+    assert f"| Bytes | {orig_bytes} | {red_bytes} | {removed_percent(orig_bytes, red_bytes)} |" in md
+    assert f"| Lines | {orig_lines} | {red_lines} | {removed_percent(orig_lines, red_lines)} |" in md
+    assert f"| Nodes | {orig_nodes} | {red_nodes} | {removed_percent(orig_nodes, red_nodes)} |" in md
+    expected_bytes_pct = 100.0 * (orig_bytes - red_bytes) / orig_bytes
+    assert removed_percent(orig_bytes, red_bytes) == f"{expected_bytes_pct:.1f}%"
+
+
+def test_removed_percent_arithmetic():
+    assert removed_percent(0, 0) == "n/a"
+    assert removed_percent(100, 40) == "60.0%"
+    assert removed_percent(10, 10) == "0.0%"
+    assert removed_percent(8, 10) == "-25.0%"
+    assert removed_percent(3, 1) == f"{100.0 * (3 - 1) / 3:.1f}%"
+
+
+def test_line_count_and_utf8_size():
+    assert line_count("") == 0
+    assert line_count("a\n") == 1
+    assert line_count("a\nb") == 2
+    assert line_count("a\nb\n") == 2
+    assert utf8_size("é") == len("é".encode("utf-8"))
+    assert utf8_size("é") == 2

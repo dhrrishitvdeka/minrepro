@@ -98,6 +98,24 @@ def test_utf8_roundtrip_dump_load(tmp_path: Path):
     assert loads(text, "yaml") == loaded
 
 
+def test_oracle_path_with_ampersand_or_percent(tmp_path: Path, broken_yaml: Path):
+    """Host quoting must keep the candidate path intact for shell metacharacters."""
+    name = "app & cfg.yaml" if os.name == "nt" else "app & cfg.yaml"
+    work = tmp_path / "dir & data"
+    try:
+        work.mkdir()
+        cfg = work / name
+        cfg.write_text(broken_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        pytest.skip("filesystem rejected metacharacters in path")
+    oracle_script = Path(__file__).resolve().parents[1] / "examples" / "oracle_bad_option.py"
+    cmd = f'"{sys.executable}" "{oracle_script}" {{}}'
+    oracle = Oracle(OracleConfig(command=cmd, error_contains="BAD_OPTION"))
+    result = oracle.run(cfg)
+    assert result.interesting is True, result.reason
+    assert result.exit_code == 1
+
+
 def test_line_endings_normalized_on_write(tmp_path: Path):
     path = tmp_path / "out.yaml"
     dump(path, {"a": 1, "b": [2, 3]}, "yaml")

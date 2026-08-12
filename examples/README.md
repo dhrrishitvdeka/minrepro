@@ -23,6 +23,20 @@ On Windows, if `python` is not on `PATH`, use `py` or the full interpreter path:
 minrepro examples/broken.yaml --test "py examples/oracle_bad_option.py {}" --error-contains BAD_OPTION
 ```
 
+The same path is available as a library call:
+
+```python
+from pathlib import Path
+from minrepro import reduce_file
+
+result = reduce_file(
+    Path("examples/broken.yaml"),
+    command="python examples/oracle_bad_option.py {}",
+    error_contains="BAD_OPTION",
+)
+print(result.reduced_text)
+```
+
 Expected reduced shape:
 
 ```yaml

@@ -33,7 +33,7 @@ The name means **minimal reproduction**: a small config you can attach to a bug 
 | --- | --- |
 | CLI | `minrepro` and `python -m minrepro` on Windows (cmd/PowerShell) and Linux (bash/sh) |
 | Paths | Absolute paths; spaces in directories are quoted for the host shell |
-| Oracle | `shell=True` uses `cmd.exe` on Windows and `/bin/sh` on Linux |
+| Oracle | `shell=True` uses `cmd.exe` on Windows and `/bin/sh` on Linux; stdin is closed; `%` in Windows paths is not expanded |
 | Temp files | Closed before re-open (Windows-safe); UTF-8 bytes with no CRLF rewriting |
 | Config I/O | Read UTF-8 (BOM-tolerant); write UTF-8 with LF newlines |
 | CI | GitHub Actions matrix: `windows-latest`, `ubuntu-latest`, `macos-latest` |
@@ -57,7 +57,7 @@ Prefer `python` / `python3` / `py` from your install; the `{}` path is substitut
 ## Install
 
 ```bash
-pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.1.0"
+pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.2.0"
 ```
 
 ```bash
@@ -144,7 +144,7 @@ flowchart TD
   F -->|Max steps reached| N
 ```
 
-In short: parse, prove the original fails, greedily drop structure while the oracle still fails, then write the reduced config and report.
+In short: parse, prove the original fails, greedily drop structure while the oracle still shows **that same failure**, then write the reduced config and report.
 
 ## CLI reference
 
@@ -185,12 +185,13 @@ A candidate is **interesting** (failure still present) when all of these hold:
 1. **Exit code:** matches `--exit-code N` if set; otherwise any non-zero exit.
 2. **Message (optional):** if `--error-contains` is set, that substring appears in stdout+stderr.
 3. **Message (optional):** if `--error-regex` is set, the pattern matches stdout+stderr.
+4. **Same failure:** the trial still carries the baseline failure identity (so emptying the file into a *different* error is not kept). Prefer `--error-contains` or `--error-regex` to pin the message you care about.
 
-Timeouts are never treated as interesting. Exit code `0` under the default rules is not interesting.
+Timeouts are never treated as interesting. Exit code `0` under the default rules is not interesting. The child process does not read minrepro's stdin.
 
-The original input is checked first. If it is not interesting, `minrepro` exits with code `1` and does not treat a reduced file as success.
+The original input is checked first. If it is not interesting, `minrepro` exits with code `1` and does not write a reduced file. The library entry (`reduce_file` / `reduce_data`) raises `BaselineNotInteresting` in that case.
 
-## Scope (v0.1)
+## Scope (v0.2)
 
 ### Removes
 
@@ -215,9 +216,13 @@ After parse, the tree must be JSON-compatible:
 | Accepted | Rejected |
 | --- | --- |
 | Mappings / objects | Multi-document YAML streams (`---` separated) |
-| Sequences / arrays | YAML anchors, aliases, merge keys |
-| string, number, bool, null | YAML date / datetime scalars |
+| Sequences / arrays | YAML date / datetime scalars |
+| string, finite number, bool, null | `NaN`, `Infinity`, `-Infinity` / YAML `.nan` `.inf` |
 | Nested combinations of the above | `!!binary`, sets, custom or Python tags |
+
+Mapping keys written as YAML 1.1 bool-words (`on`, `off`, `yes`, `no`, …) stay those **string keys** after load and dump, so a GitHub Actions `on:` block is not rewritten as `true:`. Boolean *values* (`enabled: yes`) still become YAML booleans.
+
+Anchors, aliases, and merge keys are not preserved: PyYAML resolves them into a plain tree (merge keys are flattened). Comments are not preserved.
 
 Kubernetes, Compose, and CI files that are map/list/scalar shaped usually work. If parse fails with `unsupported value type`, quote timestamps as strings or remove non-JSON constructs first.
 
@@ -225,22 +230,30 @@ Oracle stdout and stderr are decoded as UTF-8 with replacement characters, so to
 
 ## Library usage
 
+Install the package, then call the public entry points. `reduce_file` is the full load → oracle → shrink path used by the CLI.
+
 ```python
 from pathlib import Path
-from minrepro.oracle import Oracle, OracleConfig
-from minrepro.parse import load
-from minrepro.shrink import Shrinker
+from minrepro import reduce_file, reduce_data, load
+
+result = reduce_file(
+    Path("broken.yaml"),
+    command="my-tool --config {}",
+    error_contains="boom",
+)
+print(result.reduced_text)
 
 data, fmt, text = load(Path("broken.yaml"))
-oracle = Oracle(
-    OracleConfig(
-        command="my-tool --config {}",
-        error_contains="boom",
-    )
+result = reduce_data(
+    data,
+    command="my-tool --config {}",
+    fmt=fmt,
+    original_text=text,
+    error_contains="boom",
 )
-result = Shrinker(oracle, fmt, suffix=".yaml").shrink(data, text)
-print(result.reduced_text)
 ```
+
+`reduce_file` / `reduce_data` refuse a non-interesting baseline (`BaselineNotInteresting`) and only keep deletions that still show the same failure. Lower-level `Oracle`, `Shrinker`, `load`, and `dumps` remain available for custom wiring.
 
 ## Development
 
@@ -257,8 +270,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and [RELEA
 | --- | --- |
 | Package / CLI name | `minrepro` |
 | GitHub repository name | **minrepro** |
-| Current version | `0.1.0` |
-| Git tag | `v0.1.0` |
+| Current version | `0.2.0` |
+| Git tag | `v0.2.0` |
 
 Pushing an annotated tag `v*` runs CI tests, builds sdist/wheel, and creates a GitHub Release (see `.github/workflows/release.yml`).
 

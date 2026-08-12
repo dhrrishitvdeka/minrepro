@@ -8,6 +8,33 @@ from pathlib import Path
 from minrepro.model import ReductionResult, count_stats
 
 
+def utf8_size(text: str) -> int:
+    """Byte length of text encoded as UTF-8."""
+    return len(text.encode("utf-8"))
+
+
+def line_count(text: str) -> int:
+    """Number of lines, counting a final partial line without a trailing newline."""
+    if not text:
+        return 0
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
+
+
+def removed_percent(before: int, after: int) -> str:
+    """Share of ``before`` removed, ``100 * (before - after) / before``.
+
+    Returns ``n/a`` when ``before`` is 0 so callers never divide by zero.
+    """
+    if before == 0:
+        return "n/a"
+    removed = 100.0 * (before - after) / before
+    return f"{removed:.1f}%"
+
+
+def _md_cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
 def render_markdown(
     result: ReductionResult,
     *,
@@ -18,20 +45,10 @@ def render_markdown(
 ) -> str:
     orig_stats = count_stats(result.original)
     red_stats = count_stats(result.reduced)
-    orig_bytes = len(result.original_text.encode("utf-8"))
-    red_bytes = len(result.reduced_text.encode("utf-8"))
-    orig_lines = result.original_text.count("\n") + (
-        0 if result.original_text.endswith("\n") or not result.original_text else 1
-    )
-    red_lines = result.reduced_text.count("\n") + (
-        0 if result.reduced_text.endswith("\n") or not result.reduced_text else 1
-    )
-
-    def pct(before: int, after: int) -> str:
-        if before == 0:
-            return "n/a"
-        removed = 100.0 * (before - after) / before
-        return f"{removed:.1f}%"
+    orig_bytes = utf8_size(result.original_text)
+    red_bytes = utf8_size(result.reduced_text)
+    orig_lines = line_count(result.original_text)
+    red_lines = line_count(result.reduced_text)
 
     kept = [e for e in result.events if e.kept]
     rejected = [e for e in result.events if not e.kept]
@@ -45,11 +62,11 @@ def render_markdown(
         "",
         f"| Metric | Original | Reduced | Removed |",
         f"| --- | ---: | ---: | ---: |",
-        f"| Bytes | {orig_bytes} | {red_bytes} | {pct(orig_bytes, red_bytes)} |",
-        f"| Lines | {orig_lines} | {red_lines} | {pct(orig_lines, red_lines)} |",
-        f"| Nodes | {orig_stats.nodes} | {red_stats.nodes} | {pct(orig_stats.nodes, red_stats.nodes)} |",
-        f"| Mapping keys | {orig_stats.keys} | {red_stats.keys} | {pct(orig_stats.keys, red_stats.keys)} |",
-        f"| Sequence items | {orig_stats.items} | {red_stats.items} | {pct(orig_stats.items, red_stats.items)} |",
+        f"| Bytes | {orig_bytes} | {red_bytes} | {removed_percent(orig_bytes, red_bytes)} |",
+        f"| Lines | {orig_lines} | {red_lines} | {removed_percent(orig_lines, red_lines)} |",
+        f"| Nodes | {orig_stats.nodes} | {red_stats.nodes} | {removed_percent(orig_stats.nodes, red_stats.nodes)} |",
+        f"| Mapping keys | {orig_stats.keys} | {red_stats.keys} | {removed_percent(orig_stats.keys, red_stats.keys)} |",
+        f"| Sequence items | {orig_stats.items} | {red_stats.items} | {removed_percent(orig_stats.items, red_stats.items)} |",
         "",
         f"- **Input:** `{input_path}`",
         f"- **Output:** `{output_path if output_path else '(stdout / not written)'}`",
@@ -88,7 +105,7 @@ def render_markdown(
         for e in kept:
             delta = f"{e.bytes_before}->{e.bytes_after}"
             lines.append(
-                f"| {e.step} | {e.kind} | `{e.path}` | {delta} | {e.reason} |"
+                f"| {e.step} | {e.kind} | `{_md_cell(e.path)}` | {delta} | {_md_cell(e.reason)} |"
             )
 
     lines.extend(
@@ -106,8 +123,9 @@ def render_markdown(
         lines.append("| Step | Kind | Path | Reason |")
         lines.append("| ---: | --- | --- | --- |")
         for e in show:
-            reason = e.reason.replace("|", "\\|")
-            lines.append(f"| {e.step} | {e.kind} | `{e.path}` | {reason} |")
+            lines.append(
+                f"| {e.step} | {e.kind} | `{_md_cell(e.path)}` | {_md_cell(e.reason)} |"
+            )
         if len(rejected) > 50:
             lines.append(f"| ... | ... | ... | _({len(rejected) - 50} more omitted)_ |")
 

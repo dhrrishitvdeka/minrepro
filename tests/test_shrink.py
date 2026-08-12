@@ -5,8 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from minrepro.model import count_stats
-from minrepro.oracle import Oracle, OracleConfig
+from minrepro.oracle import BaselineNotInteresting, Oracle, OracleConfig
 from minrepro.parse import dumps, load, loads
 from minrepro.shrink import Shrinker
 
@@ -113,3 +115,59 @@ def test_root_kind_preserved_sequence(tmp_path: Path):
     result = Shrinker(oracle, "yaml", suffix=".yaml").shrink(data, text)
     assert isinstance(result.reduced, list)
     assert result.reduced == ["bad"]
+
+
+def test_passing_config_does_not_invent_empty_failure(tmp_path: Path):
+    script = tmp_path / "fail_empty.py"
+    script.write_text(
+        "import sys, pathlib\n"
+        "text = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8').strip()\n"
+        "if text in ('{}', '[]', ''):\n"
+        "    print('empty-fail', file=sys.stderr); sys.exit(1)\n"
+        "print('ok'); sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+    data = {"only": 1}
+    oracle = Oracle(OracleConfig(command=cmd, error_contains="empty-fail"))
+    with pytest.raises(BaselineNotInteresting):
+        Shrinker(oracle, "yaml", suffix=".yaml").shrink(data, dumps(data, "yaml"))
+
+
+def test_does_not_keep_mode_switched_empty_failure(tmp_path: Path):
+    script = tmp_path / "two_failures.py"
+    script.write_text(
+        "import sys, pathlib\n"
+        "try:\n"
+        "    import yaml\n"
+        "    data = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "except Exception as exc:\n"
+        "    print('parse', exc); sys.exit(2)\n"
+        "if not isinstance(data, dict):\n"
+        "    print('not-dict'); sys.exit(1)\n"
+        "if data.get('BUG'):\n"
+        "    print('real-bug'); sys.exit(1)\n"
+        "if 'required' not in data:\n"
+        "    print('missing-required'); sys.exit(1)\n"
+        "print('ok'); sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+    data = {"required": True, "BUG": True, "noise": 1}
+    text = dumps(data, "yaml")
+    oracle = Oracle(OracleConfig(command=cmd))
+    result = Shrinker(oracle, "yaml", suffix=".yaml").shrink(data, text)
+    assert result.reduced.get("BUG") is True
+    assert result.reduced != {}
+    assert "real-bug" in (result.final_output or "")
+    assert "missing-required" not in (result.final_output or "")
+
+
+def test_broken_yaml_keeps_bad_option_drops_frontend(
+    broken_yaml: Path, oracle_bad_cmd: str
+):
+    data, fmt, text = load(broken_yaml)
+    oracle = Oracle(OracleConfig(command=oracle_bad_cmd, error_contains="BAD_OPTION"))
+    result = Shrinker(oracle, fmt, suffix=".yaml").shrink(data, text)
+    assert result.reduced["services"]["backend"]["environment"]["BAD_OPTION"] is True
+    assert "frontend" not in result.reduced.get("services", {})

@@ -77,3 +77,61 @@ def test_yaml_datetime_rejected_as_non_json_compatible():
 def test_yaml_timestamp_string_accepted():
     data = loads('created: "2024-01-15"\n', "yaml")
     assert data == {"created": "2024-01-15"}
+
+
+def test_yaml_bool_word_keys_stay_strings_after_roundtrip():
+    text = "on:\n  push:\n    branches:\n      - main\n"
+    data = loads(text, "yaml")
+    assert list(data.keys()) == ["on"]
+    assert data["on"]["push"]["branches"] == ["main"]
+    dumped = dumps(data, "yaml")
+    first = dumped.lstrip().splitlines()[0]
+    assert first.startswith("on:")
+    assert not first.startswith("true:")
+    reloaded = loads(dumped, "yaml")
+    assert reloaded == data
+    assert list(reloaded.keys()) == ["on"]
+
+
+def test_yaml_bool_word_keys_yes_no_off():
+    data = loads("yes: 1\nno: 2\noff: 3\nON: 4\n", "yaml")
+    assert data["yes"] == 1
+    assert data["no"] == 2
+    assert data["off"] == 3
+    assert data["ON"] == 4
+    dumped = dumps(data, "yaml")
+    reloaded = loads(dumped, "yaml")
+    assert reloaded == data
+
+
+def test_yaml_bool_values_still_bools():
+    data = loads("enabled: yes\nflag: true\nclosed: off\n", "yaml")
+    assert data["enabled"] is True
+    assert data["flag"] is True
+    assert data["closed"] is False
+    dumped = dumps(data, "yaml")
+    assert "!!bool" not in dumped
+    assert "true" in dumped
+    assert "false" in dumped
+
+
+def test_json_rejects_nan_and_infinity():
+    with pytest.raises(ParseError, match="non-finite"):
+        loads('{"n": NaN}', "json")
+    with pytest.raises(ParseError, match="non-finite"):
+        loads('{"n": Infinity}', "json")
+    with pytest.raises(ParseError, match="non-finite"):
+        loads('{"n": -Infinity}', "json")
+
+
+def test_yaml_rejects_nan_and_inf():
+    with pytest.raises(ParseError, match="non-finite"):
+        loads("n: .nan\n", "yaml")
+    with pytest.raises(ParseError, match="non-finite"):
+        loads("n: .inf\n", "yaml")
+
+
+def test_finite_json_roundtrip():
+    data = loads('{"a": 1.5, "b": [true, null, "on"]}', "json")
+    assert data == {"a": 1.5, "b": [True, None, "on"]}
+    assert loads(dumps(data, "json"), "json") == data
