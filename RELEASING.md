@@ -56,10 +56,10 @@ Version source of truth: `pyproject.toml` (`project.version`) and `src/minrepro/
    git remote add origin https://github.com/YOUR_USER/minrepro.git
    git branch -M main
    git push -u origin main
-   git push origin v0.2.0
+   git push origin v0.2.1
    ```
 
-4. Open the Actions tab and confirm CI is green; open the Releases page for `v0.2.0`.
+4. Open the Actions tab and confirm CI is green; open the Releases page for `v0.2.1`.
 
 ## Optional: publish to PyPI later
 

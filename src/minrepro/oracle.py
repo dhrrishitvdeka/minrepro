@@ -220,10 +220,17 @@ def _strong_tokens(tokens: set[str]) -> set[str]:
 
 
 def is_same_failure(baseline_norm: str, trial_norm: str) -> bool:
-    """True when trial output still carries the baseline failure identity."""
+    """True when trial output still carries the baseline failure identity.
+
+    Empty or generic trial text (``""``, ``"error"``) must not match a longer
+    baseline just because it is a substring. Require the full baseline message
+    to still appear, or the baseline's distinctive / strong tokens.
+    """
     if not baseline_norm:
         return True
-    if baseline_norm in trial_norm or trial_norm in baseline_norm:
+    if not trial_norm:
+        return False
+    if baseline_norm in trial_norm:
         return True
     base_tokens = _distinctive_tokens(baseline_norm)
     trial_tokens = _distinctive_tokens(trial_norm)

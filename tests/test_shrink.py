@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from minrepro import reduce_data
 from minrepro.model import count_stats
 from minrepro.oracle import BaselineNotInteresting, Oracle, OracleConfig
 from minrepro.parse import dumps, load, loads
@@ -161,6 +162,37 @@ def test_does_not_keep_mode_switched_empty_failure(tmp_path: Path):
     assert result.reduced != {}
     assert "real-bug" in (result.final_output or "")
     assert "missing-required" not in (result.final_output or "")
+
+
+def test_silent_empty_exit_is_not_same_failure(tmp_path: Path):
+    """Default any-nonzero must not keep {} just because it exits 1 with no text.
+
+    Oracle prints ``unknown option BUG`` while BUG is present, then silent
+    exit 1 on an empty document. The reduced tree must still contain BUG.
+    """
+    script = tmp_path / "silent_empty.py"
+    script.write_text(
+        "import sys, pathlib\n"
+        "try:\n"
+        "    import yaml\n"
+        "    data = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "except Exception:\n"
+        "    sys.exit(1)\n"
+        "if isinstance(data, dict) and data.get('BUG'):\n"
+        "    print('unknown option BUG', file=sys.stderr)\n"
+        "    sys.exit(1)\n"
+        "if data == {} or data == [] or data is None:\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+    data = {"required": True, "BUG": True, "noise": 1}
+    text = dumps(data, "yaml")
+    result = reduce_data(data, cmd, fmt="yaml", original_text=text)
+    assert result.reduced.get("BUG") is True
+    assert result.reduced != {}
+    assert "BUG" in (result.final_output or "")
 
 
 def test_broken_yaml_keeps_bad_option_drops_frontend(

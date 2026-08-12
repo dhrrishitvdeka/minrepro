@@ -57,7 +57,7 @@ Prefer `python` / `python3` / `py` from your install; the `{}` path is substitut
 ## Install
 
 ```bash
-pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.2.0"
+pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.2.1"
 ```
 
 ```bash
@@ -270,8 +270,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and [RELEA
 | --- | --- |
 | Package / CLI name | `minrepro` |
 | GitHub repository name | **minrepro** |
-| Current version | `0.2.0` |
-| Git tag | `v0.2.0` |
+| Current version | `0.2.1` |
+| Git tag | `v0.2.1` |
 
 Pushing an annotated tag `v*` runs CI tests, builds sdist/wheel, and creates a GitHub Release (see `.github/workflows/release.yml`).
 

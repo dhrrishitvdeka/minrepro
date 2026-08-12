@@ -220,6 +220,9 @@ def test_same_failure_keeps_named_token_rejects_unrelated():
     assert is_same_failure("error: real-bug", "real-bug extra")
     assert not is_same_failure("error: real-bug", "missing-required")
     assert not is_same_failure("unknown option BAD_OPTION", "missing required field")
+    assert not is_same_failure("error: unknown option BUG", "")
+    assert not is_same_failure("error: unknown option BUG", "error")
+    assert is_same_failure("error: unknown option BUG", "error: unknown option BUG")
 
 
 def test_normalize_strips_path(tmp_path: Path):
