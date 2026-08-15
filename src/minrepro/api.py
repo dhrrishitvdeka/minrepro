@@ -27,6 +27,7 @@ def reduce_data(
     work_dir: Path | str | None = None,
     baseline_path: Path | str | None = None,
     oracle: Oracle | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> ReductionResult:
     """Shrink an already-parsed JSON/YAML tree using a test command.
 
@@ -41,6 +42,7 @@ def reduce_data(
                 error_contains=error_contains,
                 error_regex=error_regex,
                 timeout=timeout,
+                extra_env=extra_env,
             )
         )
     text = original_text if original_text is not None else dumps(data, fmt)
@@ -70,6 +72,7 @@ def reduce_file(
     suffix: str | None = None,
     work_dir: Path | str | None = None,
     oracle: Oracle | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> ReductionResult:
     """Load a JSON/YAML file and shrink it to the smallest same-failure tree."""
     input_path = Path(path)
@@ -92,4 +95,5 @@ def reduce_file(
         work_dir=work_dir,
         baseline_path=input_path.resolve(),
         oracle=oracle,
+        extra_env=extra_env,
     )

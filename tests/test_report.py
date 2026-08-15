@@ -94,3 +94,17 @@ def test_line_count_and_utf8_size():
     assert line_count("a\nb\n") == 2
     assert utf8_size("é") == len("é".encode("utf-8"))
     assert utf8_size("é") == 2
+
+
+def test_generate_diff_produces_unified_diff():
+    from minrepro.report import generate_diff
+
+    orig = "a: 1\nb: 2\nc: 3\n"
+    red = "b: 2\n"
+    diff = generate_diff(orig, red, from_file="in.yaml", to_file="out.yaml")
+    assert "--- in.yaml" in diff
+    assert "+++ out.yaml" in diff
+    assert "-a: 1" in diff
+    assert "-c: 3" in diff
+    assert " b: 2" in diff
+

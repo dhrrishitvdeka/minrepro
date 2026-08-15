@@ -85,25 +85,32 @@ class _ConfigDumper(yaml.SafeDumper):
     """
 
 
-def detect_format(path: Path, explicit: Format | None = None) -> Format:
+def detect_format(
+    path: Path | str,
+    explicit: Format | None = None,
+    text: str | None = None,
+) -> Format:
     if explicit is not None:
         return explicit
-    suffix = path.suffix.lower()
+    p = Path(path)
+    suffix = p.suffix.lower()
     if suffix == ".json":
         return "json"
     if suffix in {".yaml", ".yml"}:
         return "yaml"
-    # Peek at content
-    text = path.read_text(encoding="utf-8").lstrip()
-    if text.startswith("{") or text.startswith("["):
+    # Peek at content if format is not obvious from extension
+    content = text if text is not None else p.read_text(encoding="utf-8-sig")
+    stripped = content.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
         return "json"
     return "yaml"
 
 
-def load(path: Path, fmt: Format | None = None) -> tuple[Any, Format, str]:
+def load(path: Path | str, fmt: Format | None = None) -> tuple[Any, Format, str]:
     # utf-8-sig strips a Windows BOM if present; newline=None keeps \n/\r\n text.
-    text = path.read_text(encoding="utf-8-sig")
-    resolved = detect_format(path, fmt)
+    p = Path(path)
+    text = p.read_text(encoding="utf-8-sig")
+    resolved = detect_format(p, fmt, text=text)
     data = loads(text, resolved)
     return data, resolved, text
 
@@ -196,6 +203,7 @@ def dumps(data: Any, fmt: Format, *, indent: int = 2) -> str:
         default_flow_style=False,
         allow_unicode=True,
         width=120,
+        indent=indent,
     )
     # Quote-stripping only on mapping keys: `'on':` → `on:` so dump+reload keeps
     # the written key and the file still looks like GitHub Actions / Compose.

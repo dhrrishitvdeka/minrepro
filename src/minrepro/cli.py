@@ -12,9 +12,9 @@ from rich.syntax import Syntax
 
 from minrepro import __version__
 from minrepro.api import reduce_data
-from minrepro.oracle import BaselineNotInteresting, OracleError
+from minrepro.oracle import BaselineNotInteresting, Oracle, OracleConfig, OracleError
 from minrepro.parse import ParseError, dump, load
-from minrepro.report import render_markdown, utf8_size
+from minrepro.report import generate_diff, render_markdown, utf8_size
 
 console = Console(stderr=True)
 out = Console(file=sys.stdout)
@@ -28,11 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
             "that still reproduces the same failure under your test command."
         ),
         epilog=(
-            "Example:\n"
+            "Examples:\n"
             '  minrepro broken.yaml --test "kubectl apply --dry-run=server -f {}" '
             '--error-contains "unknown field"\n'
             '  minrepro app.json --test "my-app --config {}" '
             '--error-contains "unknown option"\n'
+            '  minrepro config.yaml -t "pytest tests/" -i --diff\n'
             '  minrepro examples/broken.yaml '
             '--test "python examples/oracle_bad_option.py {}" '
             '--error-contains BAD_OPTION'
@@ -53,6 +54,31 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write reduced config here (default: <input>.min.<ext>)",
+    )
+    p.add_argument(
+        "--inplace",
+        "-i",
+        action="store_true",
+        help="Overwrite the input config file with the reduced version",
+    )
+    p.add_argument(
+        "--diff",
+        "-d",
+        action="store_true",
+        help="Print a syntax-highlighted diff of the reduction",
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="Only validate whether baseline fails (do not shrink; exit 0 if failing, 1 if ok)",
+    )
+    p.add_argument(
+        "--env",
+        "-e",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help="Set environment variable for the test command (repeatable)",
     )
     p.add_argument(
         "--report",
@@ -142,13 +168,49 @@ def main(argv: list[str] | None = None) -> int:
         console.print("[red]error:[/red] --max-steps must be >= 1")
         return 2
 
+    extra_env: dict[str, str] | None = None
+    if args.env:
+        extra_env = {}
+        for item in args.env:
+            if "=" not in item:
+                console.print(f"[red]error:[/red] invalid --env '{item}' (must be KEY=VALUE)")
+                return 2
+            k, v = item.split("=", 1)
+            extra_env[k] = v
+
+    timeout = None if args.timeout == 0 else args.timeout
+
+    # --check mode: only validate baseline
+    if args.check:
+        try:
+            oracle = Oracle(
+                OracleConfig(
+                    command=args.test,
+                    exit_code=args.exit_code,
+                    error_contains=args.error_contains,
+                    error_regex=args.error_regex,
+                    timeout=timeout,
+                    extra_env=extra_env,
+                )
+            )
+            r = oracle.run(input_path.resolve())
+        except (OracleError, ValueError) as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            return 2
+        if r.interesting:
+            if not args.quiet:
+                console.print(f"[green]baseline interesting[/green] (exit {r.exit_code}: {r.reason})")
+            return 0
+        else:
+            if not args.quiet:
+                console.print(f"[red]baseline not interesting[/red] (exit {r.exit_code}: {r.reason})")
+            return 1
+
     try:
         data, fmt, original_text = load(input_path, args.format)
     except (ParseError, OSError) as exc:
         console.print(f"[red]error:[/red] {exc}")
         return 2
-
-    timeout = None if args.timeout == 0 else args.timeout
 
     def progress(msg: str) -> None:
         if not args.quiet:
@@ -182,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             progress=progress,
             suffix=suffix,
             baseline_path=input_path.resolve(),
+            extra_env=extra_env,
         )
     except BaselineNotInteresting as exc:
         console.print(f"[red]error:[/red] {exc}")
@@ -196,8 +259,10 @@ def main(argv: list[str] | None = None) -> int:
             f"(exit {result.final_exit_code}; shrinking finished)"
         )
 
-    # Default output paths
-    if args.no_output:
+    # Output path resolution
+    if args.inplace:
+        output_path = input_path
+    elif args.no_output:
         output_path = None
     elif args.output is not None:
         output_path = args.output
@@ -216,7 +281,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Auto-print only when no config file is written and no report is written,
     # or when the user explicitly asked for --stdout.
-    write_report = not args.no_report
+    write_report = not args.no_report and not args.inplace
+    if args.report is not None:
+        write_report = True
+
     if args.stdout or (output_path is None and not write_report):
         text = result.reduced_text
         if not text.endswith("\n"):
@@ -247,6 +315,16 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if not args.quiet:
             console.print(f"[green]wrote report:[/green] {report_path}")
+
+    if args.diff:
+        diff_text = generate_diff(
+            result.original_text,
+            result.reduced_text,
+            from_file=str(input_path),
+            to_file=str(output_path or "reduced"),
+        )
+        if diff_text:
+            console.print(Syntax(diff_text, "diff", theme="monokai", line_numbers=False))
 
     if not args.quiet:
         o_bytes = utf8_size(result.original_text)

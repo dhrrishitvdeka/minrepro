@@ -248,3 +248,25 @@ def test_quote_percent_on_windows():
     q = quote_path_for_shell(Path(r"C:\Users\x\%PATH%.yaml"))
     assert "%%PATH%%" in q
     assert q.startswith('"') and q.endswith('"')
+
+
+def test_oracle_extra_env(tmp_path: Path):
+    script = tmp_path / "env_check.py"
+    script.write_text(
+        "import os, sys\n"
+        "if os.environ.get('TEST_FOO') == 'BAR':\n"
+        "    sys.stderr.write('MATCH_ENV\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("a: 1\n", encoding="utf-8")
+
+    oracle = Oracle(OracleConfig(command=cmd, error_contains="MATCH_ENV", extra_env={"TEST_FOO": "BAR"}))
+    res = oracle.run(cfg)
+    assert res.interesting is True
+    assert res.exit_code == 1
+    assert "MATCH_ENV" in res.output
+

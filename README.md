@@ -9,84 +9,28 @@
 
 # minrepro
 
-Shrink a failing JSON or YAML configuration to the smallest structure that still fails.
+> **Structure-aware JSON/YAML config shrinker:** Find the smallest configuration snippet that still reproduces your bug.
 
-Long Kubernetes manifests, Compose files, CI configs, and app settings often hide one bad key among hundreds of lines. Deleting sections by hand is slow. `minrepro` removes mapping keys and list items automatically, keeps only changes that still reproduce the failure, and always leaves valid JSON or YAML.
+[![CI](https://github.com/dhrrishitvdeka/minrepro/actions/workflows/ci.yml/badge.svg)](https://github.com/dhrrishitvdeka/minrepro/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-```bash
-minrepro broken.yaml \
-  --test "kubectl apply --dry-run=server -f {}" \
-  --error-contains "unknown field"
-```
+---
 
-The name means **minimal reproduction**: a small config you can attach to a bug report or regression test.
+## ⚡ What is minrepro? (In 15 Seconds)
 
-## Requirements
+When debugging huge Kubernetes manifests, Docker Compose files, CI workflows, or app configs, finding the exact offending line by hand is tedious and slow.
 
-- Python 3.10 or newer
-- Dependencies: `PyYAML`, `rich` (installed with the package)
-- **Native on Windows and Linux** (also macOS). Pure Python; no OS-specific binaries.
+**`minrepro`** automates this delta debugging process:
+1. Parses your configuration tree (JSON or YAML).
+2. Runs your test command against the baseline to capture the exact failure.
+3. Greedily removes unused keys and array items (largest subtrees first).
+4. Keeps only deletions where your test **still fails with that exact same error**.
+5. Outputs a minimal, valid config and a Markdown report with a unified diff!
 
-## Platforms (Windows and Linux)
+### 🔍 Before vs. After Example
 
-| Area | Behavior |
-| --- | --- |
-| CLI | `minrepro` and `python -m minrepro` on Windows (cmd/PowerShell) and Linux (bash/sh) |
-| Paths | Absolute paths; spaces in directories are quoted for the host shell |
-| Oracle | `shell=True` uses `cmd.exe` on Windows and `/bin/sh` on Linux; stdin is closed; `%` in Windows paths is not expanded |
-| Temp files | Closed before re-open (Windows-safe); UTF-8 bytes with no CRLF rewriting |
-| Config I/O | Read UTF-8 (BOM-tolerant); write UTF-8 with LF newlines |
-| CI | GitHub Actions matrix: `windows-latest`, `ubuntu-latest`, `macos-latest` |
-
-Example on Windows (cmd or PowerShell):
-
-```text
-minrepro examples\broken.yaml --test "py examples\oracle_bad_option.py {}" --error-contains BAD_OPTION
-```
-
-Example on Linux:
-
-```bash
-minrepro examples/broken.yaml \
-  --test "python3 examples/oracle_bad_option.py {}" \
-  --error-contains BAD_OPTION
-```
-
-Prefer `python` / `python3` / `py` from your install; the `{}` path is substituted and quoted automatically.
-
-## Install
-
-```bash
-pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.2.1"
-```
-
-```bash
-minrepro --version
-# or
-python -m minrepro --version
-```
-
-GitHub Releases (source archives and built wheels, when published):  
-https://github.com/dhrrishitvdeka/minrepro/releases
-
-## Quick start
-
-This repository includes a sample config and a small Python oracle that fails only when `BAD_OPTION` is present:
-
-```bash
-minrepro examples/broken.yaml \
-  --test "python examples/oracle_bad_option.py {}" \
-  --error-contains BAD_OPTION
-```
-
-On Windows, if `python` is not on `PATH`, use `py`:
-
-```text
-minrepro examples/broken.yaml --test "py examples/oracle_bad_option.py {}" --error-contains BAD_OPTION
-```
-
-**Input** (`examples/broken.yaml`):
-
+**Original (100+ lines):**
 ```yaml
 services:
   frontend:
@@ -103,8 +47,7 @@ services:
       - ./data:/data
 ```
 
-**Reduced output** (default path: `examples/broken.min.yaml`):
-
+**After `minrepro` (Only what reproduces the failure):**
 ```yaml
 services:
   backend:
@@ -112,169 +55,201 @@ services:
       BAD_OPTION: true
 ```
 
-By default a Markdown report is also written to `examples/broken.minrepro.md`. Use `--no-report` to skip it.
+---
 
-JSON works the same way:
+## 🚀 Quick Start
+
+### 1. Install
 
 ```bash
-minrepro examples/broken.json \
-  --test "python examples/oracle_bad_option.py {}" \
-  --error-contains BAD_OPTION
+pip install "git+https://github.com/dhrrishitvdeka/minrepro.git@v0.2.1"
 ```
 
-## How it works
-
-```mermaid
-flowchart TD
-  A[Load JSON or YAML] --> B[Parse into tree]
-  B --> C{Baseline interesting?}
-  C -->|No| D[Exit 1: baseline does not match predicates]
-  C -->|Yes| E[List removable keys and list items<br/>larger subtrees first]
-  E --> F{Any candidates left?}
-  F -->|No| G[Stop: nothing left to remove]
-  F -->|Yes| H[Delete one key or item]
-  H --> I[Write temp config]
-  I --> J[Run --test command]
-  J --> K{Still interesting?}
-  K -->|Yes| L[Keep deletion<br/>rescan candidates]
-  K -->|No| M[Reject deletion<br/>try next candidate]
-  L --> F
-  M --> F
-  G --> N[Write reduced file + Markdown report]
-  F -->|Max steps reached| N
+Verify installation:
+```bash
+minrepro --version
 ```
 
-In short: parse, prove the original fails, greedily drop structure while the oracle still shows **that same failure**, then write the reduced config and report.
+### 2. Run on a Broken File
 
-## CLI reference
+```bash
+minrepro broken.yaml --test "my-tool --config {}" --error-contains "BAD_OPTION"
+```
+
+> **Note:** The `{}` placeholder is automatically replaced by the path to each test candidate.
+
+---
+
+## 📋 Common Real-World Recipes
+
+### 🐳 Docker Compose
+Shrink a broken compose file that fails validation:
+```bash
+minrepro compose.yaml \
+  --test "docker compose -f {} config" \
+  --error-contains "service 'db' has invalid configuration"
+```
+
+### ☸️ Kubernetes Manifests
+Isolate an invalid field in a large manifest using `kubectl` dry-run:
+```bash
+minrepro deployment.yaml \
+  --test "kubectl apply --dry-run=server -f {}" \
+  --error-contains "unknown field"
+```
+
+### 🤖 GitHub Actions Workflows
+Isolate an invalid step or action in a `.github/workflows/*.yml` file using `actionlint`:
+```bash
+minrepro .github/workflows/ci.yml \
+  --test "actionlint {}" \
+  --error-contains "unexpected key"
+```
+
+### 📦 App Settings & JSON Payloads
+Shrink an API request body or settings file:
+```bash
+minrepro payload.json \
+  --test "python -m myapp.validate --input {}" \
+  --diff
+```
+
+### ⚡ Direct In-Place Edit with Diff
+Overwrite the file directly in place and display a colored terminal diff:
+```bash
+minrepro broken.yaml -t "pytest tests/test_config.py" --inplace --diff
+```
+
+---
+
+## 🎛️ CLI Reference
 
 ```text
 minrepro INPUT --test "CMD with {}" [options]
 ```
 
-| Flag | Description |
-| --- | --- |
-| `INPUT` | Path to a failing JSON or YAML file |
-| `--test`, `-t` | Shell command; the first `{}` is replaced by a quoted path to the candidate config |
-| `--output`, `-o` | Reduced config path (default: `<stem>.min.<ext>` next to the input) |
-| `--report`, `-r` | Markdown report path (default: `<stem>.minrepro.md`) |
-| `--no-report` | Do not write a Markdown report |
-| `--no-output` | Do not write a reduced config file |
-| `--stdout` | Print reduced config to stdout |
-| `--format json\|yaml` | Force format (default: detect from extension or content) |
-| `--exit-code N` | Require this exact exit code (default: any non-zero) |
-| `--error-contains TEXT` | Require this substring in combined stdout and stderr |
-| `--error-regex PATTERN` | Require this regex to match combined stdout and stderr |
-| `--timeout SEC` | Per-run timeout in seconds (default `60`; `0` means no timeout) |
-| `--max-steps N` | Stop after N deletion attempts (for debugging) |
-| `--quiet`, `-q` | Less progress on stderr |
-| `--version` | Print version and exit |
+### Options Overview
 
-### Exit codes
+| Flag | Shorthand | Description |
+| :--- | :--- | :--- |
+| `INPUT` | | Path to failing JSON or YAML file |
+| `--test CMD` | `-t CMD` | Command to run (`{}` is replaced with the candidate path) |
+| `--output PATH` | `-o PATH` | Output path for reduced config (default: `<name>.min.<ext>`) |
+| `--inplace` | `-i` | Overwrite the input file directly with the reduced config |
+| `--diff` | `-d` | Print a syntax-highlighted diff of all removed keys/lines |
+| `--check` | | Test whether the baseline fails without shrinking (exit 0 if fails, 1 if ok) |
+| `--env KEY=VAL` | `-e KEY=VAL` | Set environment variable for the test subprocess (repeatable) |
+| `--report PATH` | `-r PATH` | Path to Markdown report (default: `<name>.minrepro.md`) |
+| `--no-report` | | Do not generate a Markdown report |
+| `--stdout` | | Print the reduced config directly to stdout |
+| `--no-output` | | Do not write a reduced config file to disk |
+| `--format json\|yaml` | | Force format (default: auto-detected) |
+| `--exit-code N` | | Require an exact exit code (default: any non-zero code) |
+| `--error-contains TEXT`| | Require this substring in command output (stdout + stderr) |
+| `--error-regex PATTERN`| | Require this regex to match command output |
+| `--timeout SEC` | | Per-run timeout in seconds (default: `60`; `0` for none) |
+| `--max-steps N` | | Stop after N deletion attempts (for debugging) |
+| `--quiet` | `-q` | Suppress progress output on stderr |
+| `--version` | | Show version and exit |
+
+### Exit Codes
 
 | Code | Meaning |
-| ---: | --- |
-| `0` | Shrink finished (baseline was interesting) |
-| `1` | Baseline not interesting under the given predicates |
-| `2` | Usage, parse, or configuration error |
+| :---: | :--- |
+| **`0`** | **Success:** Config reduced (or baseline is interesting when using `--check`). |
+| **`1`** | **Baseline Not Interesting:** The original config does not trigger the specified failure. |
+| **`2`** | **Error:** Invalid command-line arguments, parse failure, or configuration error. |
 
-### Predicates
+---
 
-A candidate is **interesting** (failure still present) when all of these hold:
+## 🔍 How It Works
 
-1. **Exit code:** matches `--exit-code N` if set; otherwise any non-zero exit.
-2. **Message (optional):** if `--error-contains` is set, that substring appears in stdout+stderr.
-3. **Message (optional):** if `--error-regex` is set, the pattern matches stdout+stderr.
-4. **Same failure:** the trial still carries the baseline failure identity (so emptying the file into a *different* error is not kept). Prefer `--error-contains` or `--error-regex` to pin the message you care about.
+```mermaid
+flowchart TD
+  A[Load JSON or YAML] --> B[Parse Tree & Validate Baseline]
+  B --> C{Does Baseline Fail?}
+  C -->|No| D[Exit 1: Baseline not interesting]
+  C -->|Yes| E[Collect Deletion Candidates<br/>Sorted by Subtree Weight]
+  E --> F{Any Candidates Left?}
+  F -->|No| G[Fixed-Point Reached]
+  F -->|Yes| H[Delete One Key or List Item]
+  H --> I[Write Temp Config & Run Test]
+  I --> J{Still Shows Same Error?}
+  J -->|Yes| K[Keep Deletion & Rescan Tree]
+  J -->|No| L[Reject Deletion & Try Next]
+  K --> F
+  L --> F
+  G --> M[Write Reduced Config + Markdown Report + Diff]
+```
 
-Timeouts are never treated as interesting. Exit code `0` under the default rules is not interesting. The child process does not read minrepro's stdin.
+### Same-Failure Safety Guarantee
+`minrepro` ensures your reduction never "drifts" into a different error:
+- **Predicate Check:** Must match `--exit-code`, `--error-contains`, and `--error-regex` if specified.
+- **Signature Anchoring:** Distinguishes distinctive failure tokens from generic noise (e.g. emptying a file into a syntax error is automatically rejected).
 
-The original input is checked first. If it is not interesting, `minrepro` exits with code `1` and does not write a reduced file. The library entry (`reduce_file` / `reduce_data`) raises `BaselineNotInteresting` in that case.
+---
 
-## Scope (v0.2)
+## 🐍 Python Library API
 
-### Removes
-
-- Mapping keys at any nesting depth
-- Sequence (list) items at any nesting depth
-
-Each trial rewrites a complete, parseable document and re-runs `--test`.
-
-### Does not support
-
-- TOML or XML
-- Optional scalar nulling, type mutation, or value fuzzing
-- Multi-document YAML streams or CRD-specific logic
-- YAML anchors, aliases, or merge keys
-- Comment-preserving round-trips
-- Guaranteed 1-minimal ddmin (uses multi-pass greedy structural deletion)
-
-### JSON-compatible configs only
-
-After parse, the tree must be JSON-compatible:
-
-| Accepted | Rejected |
-| --- | --- |
-| Mappings / objects | Multi-document YAML streams (`---` separated) |
-| Sequences / arrays | YAML date / datetime scalars |
-| string, finite number, bool, null | `NaN`, `Infinity`, `-Infinity` / YAML `.nan` `.inf` |
-| Nested combinations of the above | `!!binary`, sets, custom or Python tags |
-
-Mapping keys written as YAML 1.1 bool-words (`on`, `off`, `yes`, `no`, …) stay those **string keys** after load and dump, so a GitHub Actions `on:` block is not rewritten as `true:`. Boolean *values* (`enabled: yes`) still become YAML booleans.
-
-Anchors, aliases, and merge keys are not preserved: PyYAML resolves them into a plain tree (merge keys are flattened). Comments are not preserved.
-
-Kubernetes, Compose, and CI files that are map/list/scalar shaped usually work. If parse fails with `unsupported value type`, quote timestamps as strings or remove non-JSON constructs first.
-
-Oracle stdout and stderr are decoded as UTF-8 with replacement characters, so tools that emit mixed encodings can still match `--error-contains` and `--error-regex` on readable text.
-
-## Library usage
-
-Install the package, then call the public entry points. `reduce_file` is the full load → oracle → shrink path used by the CLI.
+Use `minrepro` programmatically in Python scripts, test harnesses, or CI pipelines:
 
 ```python
 from pathlib import Path
 from minrepro import reduce_file, reduce_data, load
 
+# 1. Reduce a file directly
 result = reduce_file(
-    Path("broken.yaml"),
-    command="my-tool --config {}",
-    error_contains="boom",
+    "broken.yaml",
+    command="python -m myapp.check --config {}",
+    error_contains="BAD_OPTION",
 )
+print("Reduced YAML:")
 print(result.reduced_text)
 
-data, fmt, text = load(Path("broken.yaml"))
+# 2. Reduce in-memory data
+data, fmt, original_text = load(Path("broken.yaml"))
 result = reduce_data(
     data,
-    command="my-tool --config {}",
+    command="python -m myapp.check --config {}",
     fmt=fmt,
-    original_text=text,
-    error_contains="boom",
+    original_text=original_text,
+    error_contains="BAD_OPTION",
 )
+print(f"Removed {len(result.events)} items in {result.duration_seconds:.2f}s")
 ```
 
-`reduce_file` / `reduce_data` refuse a non-interesting baseline (`BaselineNotInteresting`) and only keep deletions that still show the same failure. Lower-level `Oracle`, `Shrinker`, `load`, and `dumps` remain available for custom wiring.
+---
 
-## Development
+## 💻 Platforms & Cross-Platform Details
+
+`minrepro` is written in pure Python with zero OS-specific binaries:
+
+| Area | Windows Behavior | POSIX (Linux / macOS) Behavior |
+| :--- | :--- | :--- |
+| **Shell** | `cmd.exe` via CreateProcess (`shell=True`) | `/bin/sh` / `bash` |
+| **Quoting** | Double quotes with `%` escaping (`%%`) | Single quotes via `shlex.quote` |
+| **Temp Files** | Closed before subprocess access (no lock conflicts) | Standard unlinking |
+| **Line Endings** | Normalized to `\n` (UTF-8, no CRLF git noise) | Standard `\n` |
+| **Process Tree** | `taskkill /F /T` on timeout | `os.killpg(SIGKILL)` on timeout |
+
+---
+
+## 🛠️ Development & Contributing
 
 ```bash
+# Clone and setup environment
+git clone https://github.com/dhrrishitvdeka/minrepro.git
+cd minrepro
+
+# Install in editable mode with dev dependencies
 pip install -e ".[dev]"
+
+# Run test suite
 pytest
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and [RELEASING.md](RELEASING.md).
+---
 
-## Releases and tags
+## 📄 License
 
-| Item | Value |
-| --- | --- |
-| Package / CLI name | `minrepro` |
-| GitHub repository name | **minrepro** |
-| Current version | `0.2.1` |
-| Git tag | `v0.2.1` |
-
-Pushing an annotated tag `v*` runs CI tests, builds sdist/wheel, and creates a GitHub Release (see `.github/workflows/release.yml`).
-
-## License
-
-[MIT](LICENSE)
+This project is licensed under the [MIT License](LICENSE).

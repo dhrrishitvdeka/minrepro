@@ -101,6 +101,9 @@ class OracleConfig:
     shell: bool = True
     """Run via the system shell (cmd.exe on Windows, /bin/sh on Linux/macOS)."""
 
+    extra_env: dict[str, str] | None = None
+    """Optional environment variables to pass to the oracle subprocess."""
+
     def compiled_regex(self) -> re.Pattern[str] | None:
         if self.error_regex is None:
             return None
@@ -236,7 +239,7 @@ def is_same_failure(baseline_norm: str, trial_norm: str) -> bool:
     trial_tokens = _distinctive_tokens(trial_norm)
     strong = _strong_tokens(base_tokens)
     if strong:
-        return strong <= trial_tokens
+        return bool(strong & trial_tokens)
     if base_tokens:
         return bool(base_tokens & trial_tokens)
     return False
@@ -271,12 +274,15 @@ def _run_shell_command(
     *,
     shell: bool,
     timeout: float | None,
+    env: dict[str, str] | None = None,
 ) -> tuple[int | None, bytes, bytes, bool]:
     """Run the oracle command with stdin closed and a killable process group."""
+    process_env = {**os.environ, **env} if env is not None else None
     popen_kwargs: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
+        "env": process_env,
     }
     if os.name == "nt":
         create = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -328,6 +334,7 @@ class Oracle:
             cmd,
             shell=self.config.shell,
             timeout=self.config.timeout,
+            env=self.config.extra_env,
         )
         output = _combine(
             decode_process_bytes(stdout),

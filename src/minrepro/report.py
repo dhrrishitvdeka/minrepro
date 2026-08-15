@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,24 @@ def removed_percent(before: int, after: int) -> str:
 
 def _md_cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
+
+
+def generate_diff(
+    original_text: str,
+    reduced_text: str,
+    from_file: str = "original",
+    to_file: str = "reduced",
+) -> str:
+    """Generate a unified diff between original and reduced text."""
+    orig_lines = original_text.splitlines(keepends=True)
+    red_lines = reduced_text.splitlines(keepends=True)
+    diff = difflib.unified_diff(
+        orig_lines,
+        red_lines,
+        fromfile=from_file,
+        tofile=to_file,
+    )
+    return "".join(diff)
 
 
 def render_markdown(
@@ -89,6 +108,24 @@ def render_markdown(
 
     for key, value in predicates.items():
         lines.append(f"- `{key}`: `{value}`")
+
+    diff_text = generate_diff(
+        result.original_text,
+        result.reduced_text,
+        from_file=str(input_path),
+        to_file=str(output_path) if output_path else "reduced",
+    )
+    if diff_text:
+        lines.extend(
+            [
+                "",
+                "## Structural Diff",
+                "",
+                "```diff",
+                diff_text.rstrip("\n"),
+                "```",
+            ]
+        )
 
     lines.extend(
         [

@@ -5,11 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-08-13
+## [0.2.1] - 2026-08-16
+
+### Added
+
+- `--inplace` (`-i`) CLI flag to overwrite the input file directly with the reduced configuration.
+- `--diff` (`-d`) CLI flag to display a syntax-highlighted unified diff of all removed structure.
+- `--check` CLI flag for dry-run baseline validation without running the shrink loop.
+- `--env` (`-e KEY=VALUE`) CLI option and `extra_env` API parameter to pass custom environment variables to test subprocesses.
+- `generate_diff` exported in public API and automated `## Structural Diff` section added to Markdown reduction reports.
+- `detect_format` optimized to accept optional `text` to prevent redundant file reads and handle UTF-8 BOMs consistently.
+- `dumps` now supports custom `indent` parameter across both JSON and YAML.
 
 ### Fixed
 
+- Same-failure matching token overlap logic refined to prevent rejection of valid sub-structure prunings.
 - Same-failure matching no longer treats empty or generic trial output (`""`, `"error"`) as a match just because it is a substring of the baseline message. A silent exit-1 empty document is rejected; the original failure identity must still appear.
+
 
 ## [0.2.0] - 2026-08-13
 

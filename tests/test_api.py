@@ -79,3 +79,21 @@ def test_reduce_data_dumps_when_original_text_omitted(
     assert result.reduced["services"]["backend"]["environment"]["BAD_OPTION"] is True
     assert loads(result.reduced_text, fmt) == result.reduced
     assert dumps(result.reduced, fmt) == result.reduced_text
+
+
+def test_reduce_file_with_extra_env(tmp_path: Path):
+    script = tmp_path / "env_oracle.py"
+    script.write_text(
+        "import os, sys\n"
+        "if os.environ.get('CHECK_VAR') == 'ACTIVE':\n"
+        "    sys.stderr.write('FOUND_ENV\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    src = tmp_path / "test.yaml"
+    src.write_text("keep: 1\ndrop: 2\n", encoding="utf-8")
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+    res = reduce_file(src, cmd, error_contains="FOUND_ENV", extra_env={"CHECK_VAR": "ACTIVE"})
+    assert res.final_exit_code == 1
+

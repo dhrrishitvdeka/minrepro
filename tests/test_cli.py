@@ -228,3 +228,104 @@ def test_cli_baseline_with_non_utf8_oracle_output(tmp_path: Path):
     )
     assert rc == 0, "non-UTF-8 oracle output must not fail baseline validation"
     assert out.is_file()
+
+
+def test_cli_inplace(tmp_path: Path, broken_yaml: Path, oracle_bad_cmd: str):
+    src = tmp_path / "broken.yaml"
+    src.write_text(broken_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+    rc = main(
+        [
+            str(src),
+            "--test",
+            oracle_bad_cmd,
+            "--error-contains",
+            "BAD_OPTION",
+            "--inplace",
+            "--quiet",
+        ]
+    )
+    assert rc == 0
+    data = loads(src.read_text(encoding="utf-8"), "yaml")
+    assert data["services"]["backend"]["environment"]["BAD_OPTION"] is True
+    assert "frontend" not in data["services"]
+
+
+def test_cli_diff(tmp_path: Path, broken_yaml: Path, oracle_bad_cmd: str, capsys):
+    src = tmp_path / "broken.yaml"
+    src.write_text(broken_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+    rc = main(
+        [
+            str(src),
+            "--test",
+            oracle_bad_cmd,
+            "--error-contains",
+            "BAD_OPTION",
+            "--no-output",
+            "--no-report",
+            "--diff",
+            "--quiet",
+        ]
+    )
+    assert rc == 0
+
+
+def test_cli_check_mode(tmp_path: Path, broken_yaml: Path, oracle_bad_cmd: str, oracle_ok_cmd: str):
+    src = tmp_path / "broken.yaml"
+    src.write_text(broken_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+
+    # Baseline is interesting -> --check exits 0
+    rc_interesting = main(
+        [
+            str(src),
+            "--test",
+            oracle_bad_cmd,
+            "--error-contains",
+            "BAD_OPTION",
+            "--check",
+            "--quiet",
+        ]
+    )
+    assert rc_interesting == 0
+
+    # Baseline is not interesting -> --check exits 1
+    rc_not_interesting = main(
+        [
+            str(src),
+            "--test",
+            oracle_ok_cmd,
+            "--check",
+            "--quiet",
+        ]
+    )
+    assert rc_not_interesting == 1
+
+
+def test_cli_env_flags(tmp_path: Path):
+    script = tmp_path / "oracle_env.py"
+    script.write_text(
+        "import os, sys\n"
+        "if os.environ.get('MY_CUSTOM_FLAG') == '1':\n"
+        "    sys.stderr.write('CUSTOM_ERROR\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    src = tmp_path / "cfg.yaml"
+    src.write_text("a: 1\nb: 2\n", encoding="utf-8")
+    cmd = f'"{sys.executable}" "{script}" {{}}'
+
+    # Without env flag, baseline is not interesting (exits 0)
+    rc_fail = main([str(src), "--test", cmd, "--error-contains", "CUSTOM_ERROR", "--check", "--quiet"])
+    assert rc_fail == 1
+
+    # With -e MY_CUSTOM_FLAG=1, baseline fails with CUSTOM_ERROR (interesting)
+    rc_ok = main([str(src), "--test", cmd, "-e", "MY_CUSTOM_FLAG=1", "--error-contains", "CUSTOM_ERROR", "--check", "--quiet"])
+    assert rc_ok == 0
+
+
+def test_cli_invalid_env(tmp_path: Path, oracle_bad_cmd: str, broken_yaml: Path):
+    src = tmp_path / "broken.yaml"
+    src.write_text(broken_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+    rc = main([str(src), "--test", oracle_bad_cmd, "-e", "INVALID_NO_EQUALS", "--quiet"])
+    assert rc == 2
+

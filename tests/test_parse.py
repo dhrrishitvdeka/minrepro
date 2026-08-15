@@ -135,3 +135,26 @@ def test_finite_json_roundtrip():
     data = loads('{"a": 1.5, "b": [true, null, "on"]}', "json")
     assert data == {"a": 1.5, "b": [True, None, "on"]}
     assert loads(dumps(data, "json"), "json") == data
+
+
+def test_detect_format_with_text_avoids_disk():
+    assert detect_format(Path("unknown.custom"), text='{"key": 1}') == "json"
+    assert detect_format(Path("unknown.custom"), text="key: 1") == "yaml"
+
+
+def test_detect_format_handles_bom(tmp_path: Path):
+    p = tmp_path / "data.custom"
+    p.write_bytes(b"\xef\xbb\xbf{\"hello\": \"world\"}")
+    assert detect_format(p) == "json"
+    data, fmt, _ = load(p)
+    assert fmt == "json"
+    assert data == {"hello": "world"}
+
+
+def test_dumps_custom_indent():
+    data = {"a": {"b": 1}}
+    j4 = dumps(data, "json", indent=4)
+    assert "    \"b\": 1" in j4
+    y4 = dumps(data, "yaml", indent=4)
+    assert "    b: 1" in y4
+
