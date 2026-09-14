@@ -23,6 +23,17 @@ On Windows, if `python` is not on `PATH`, use `py` or the full interpreter path:
 minrepro examples/broken.yaml --test "py examples/oracle_bad_option.py {}" --error-contains BAD_OPTION
 ```
 
+Confirm the original file actually fails before shrinking. `--check` runs the oracle once and skips the reduction loop:
+
+```bash
+minrepro examples/broken.yaml \
+  --test "python examples/oracle_bad_option.py {}" \
+  --error-contains BAD_OPTION \
+  --check
+```
+
+Exit `0` here means the baseline is interesting. Exit `1` means the original file does not match the failure you asked for, so shrinking would stop immediately.
+
 The same path is available as a library call:
 
 ```python
