@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Requires Python 3.10 or newer.
+Requires Python 3.10 or newer. If `python` is not on `PATH`, use `python3 -m venv .venv` on POSIX or `py -m venv .venv` on Windows.
 
 ## Project layout
 
