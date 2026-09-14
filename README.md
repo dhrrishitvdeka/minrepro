@@ -4,7 +4,7 @@
  ██╔████╔██║██║██╔██╗ ██║██████╔╝█████╗  ██████╔╝██████╔╝██║   ██║
  ██║╚██╔╝██║██║██║╚██╗██║██╔══██╗██╔══╝  ██╔═══╝ ██╔══██╗██║   ██║
  ██║ ╚═╝ ██║██║██║ ╚████║██║  ██║███████╗██║     ██║  ██║╚██████╔╝
- ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ 
+ ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚════╝ 
 ```
 
 # minrepro
@@ -90,7 +90,7 @@ minrepro compose.yaml \
   --error-contains "service 'db' has invalid configuration"
 ```
 
-### ☸️ Kubernetes Manifests
+### ⛓️ Kubernetes Manifests
 Isolate an invalid field in a large manifest using `kubectl` dry-run:
 ```bash
 minrepro deployment.yaml \
@@ -231,6 +231,17 @@ print(f"Removed {len(result.events)} items in {result.duration_seconds:.2f}s")
 | **Temp Files** | Closed before subprocess access (no lock conflicts) | Standard unlinking |
 | **Line Endings** | Normalized to `\n` (UTF-8, no CRLF git noise) | Standard `\n` |
 | **Process Tree** | `taskkill /F /T` on timeout | `os.killpg(SIGKILL)` on timeout |
+
+---
+
+## ⚠️ Current limitations
+
+v0.2 is a structural shrinker, not a format-preserving pretty-printer:
+
+- JSON-compatible JSON/YAML only. No TOML, XML, or multi-document YAML streams.
+- Comments, key order beyond what the dumper emits, and YAML anchors / aliases / merge keys are not preserved (aliases are resolved into a plain tree).
+- Date, datetime, binary, set, and custom-tag values are rejected at parse time.
+- Prefer `--error-contains` or `--error-regex` so the shrink loop stays pinned to the original failure, not a later parse error.
 
 ---
 
