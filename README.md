@@ -17,7 +17,7 @@
 
 ---
 
-## ⚡ What is minrepro? (In 15 Seconds)
+##  What is minrepro? (In 15 Seconds)
 
 When debugging huge Kubernetes manifests, Docker Compose files, CI workflows, or app configs, finding the exact offending line by hand is tedious and slow.
 
@@ -28,7 +28,7 @@ When debugging huge Kubernetes manifests, Docker Compose files, CI workflows, or
 4. Keeps only deletions where your test **still fails with that exact same error**.
 5. Outputs a minimal, valid config and a Markdown report with a unified diff!
 
-### 🔍 Before vs. After Example
+###  Before vs. After Example
 
 **Original (100+ lines):**
 ```yaml
@@ -57,7 +57,7 @@ services:
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### 1. Install
 
@@ -80,9 +80,9 @@ minrepro broken.yaml --test "my-tool --config {}" --error-contains "BAD_OPTION"
 
 ---
 
-## 📋 Common Real-World Recipes
+##  Common Real-World Recipes
 
-### 🐳 Docker Compose
+###  Docker Compose
 Shrink a broken compose file that fails validation:
 ```bash
 minrepro compose.yaml \
@@ -90,7 +90,7 @@ minrepro compose.yaml \
   --error-contains "service 'db' has invalid configuration"
 ```
 
-### ⛓️ Kubernetes Manifests
+###  Kubernetes Manifests
 Isolate an invalid field in a large manifest using `kubectl` dry-run:
 ```bash
 minrepro deployment.yaml \
@@ -98,7 +98,7 @@ minrepro deployment.yaml \
   --error-contains "unknown field"
 ```
 
-### 🤖 GitHub Actions Workflows
+###  GitHub Actions Workflows
 Isolate an invalid step or action in a `.github/workflows/*.yml` file using `actionlint`:
 ```bash
 minrepro .github/workflows/ci.yml \
@@ -106,7 +106,7 @@ minrepro .github/workflows/ci.yml \
   --error-contains "unexpected key"
 ```
 
-### 📦 App Settings & JSON Payloads
+###  App Settings & JSON Payloads
 Shrink an API request body or settings file:
 ```bash
 minrepro payload.json \
@@ -114,7 +114,7 @@ minrepro payload.json \
   --diff
 ```
 
-### ⚡ Direct In-Place Edit with Diff
+###  Direct In-Place Edit with Diff
 Overwrite the file directly in place and display a colored terminal diff:
 ```bash
 minrepro broken.yaml -t "pytest tests/test_config.py" --inplace --diff
@@ -122,7 +122,7 @@ minrepro broken.yaml -t "pytest tests/test_config.py" --inplace --diff
 
 ---
 
-## 🎛️ CLI Reference
+##  CLI Reference
 
 ```text
 minrepro INPUT --test "CMD with {}" [options]
@@ -162,7 +162,7 @@ minrepro INPUT --test "CMD with {}" [options]
 
 ---
 
-## 🔍 How It Works
+##  How It Works
 
 ```mermaid
 flowchart TD
@@ -189,7 +189,7 @@ flowchart TD
 
 ---
 
-## 🐍 Python Library API
+##  Python Library API
 
 Use `minrepro` programmatically in Python scripts, test harnesses, or CI pipelines:
 
@@ -220,7 +220,7 @@ print(f"Removed {len(result.events)} items in {result.duration_seconds:.2f}s")
 
 ---
 
-## 💻 Platforms & Cross-Platform Details
+##  Platforms & Cross-Platform Details
 
 `minrepro` is written in pure Python with zero OS-specific binaries:
 
@@ -234,7 +234,7 @@ print(f"Removed {len(result.events)} items in {result.duration_seconds:.2f}s")
 
 ---
 
-## ⚠️ Current limitations
+##  Current limitations
 
 v0.2 is a structural shrinker, not a format-preserving pretty-printer:
 
@@ -245,7 +245,7 @@ v0.2 is a structural shrinker, not a format-preserving pretty-printer:
 
 ---
 
-## 🛠️ Development & Contributing
+##  Development & Contributing
 
 ```bash
 # Clone and setup environment
@@ -261,6 +261,6 @@ pytest
 
 ---
 
-## 📄 License
+##  License
 
 This project is licensed under the [MIT License](LICENSE).
